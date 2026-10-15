@@ -17,6 +17,10 @@ use rmcp::transport::auth::OAuthHttpRedirectPolicy;
 use rmcp::transport::auth::OAuthHttpRequest;
 
 const MAX_OAUTH_HTTP_RESPONSE_BODY_BYTES: usize = 1024 * 1024;
+/// OAuth discovery GETs the MCP endpoint itself to read `WWW-Authenticate`. Some
+/// servers answer an unauthenticated GET by holding an SSE stream open with no
+/// bytes, which stalls sign-in until a much longer transport timeout fires.
+const DEFAULT_OAUTH_HTTP_TIMEOUT: Duration = Duration::from_secs(8);
 static NEXT_OAUTH_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone)]
@@ -54,6 +58,15 @@ impl OAuthHttpClientAdapter {
             headers.remove(name);
         }
         headers.extend(parts.headers);
+        if parts.method == oauth2::http::Method::GET
+            && !headers.contains_key(reqwest::header::ACCEPT)
+        {
+            headers.insert(
+                reqwest::header::ACCEPT,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+        }
+        let timeout = Some(timeout.unwrap_or(DEFAULT_OAUTH_HTTP_TIMEOUT));
         let headers = headers
             .iter()
             .map(|(name, value)| {
