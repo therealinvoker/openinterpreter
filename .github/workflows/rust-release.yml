@@ -66,7 +66,7 @@ jobs:
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             tag="${GITHUB_REF_NAME}"
-            [[ "${tag}" =~ ^rust-v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            [[ "${tag}" =~ ^rust-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] \
               || { echo "❌  Tag ${tag} does not match rust-vX.Y.Z"; exit 1; }
             version="${tag#rust-v}"
             cargo_version="$(grep -m1 '^version = ' codex-rs/Cargo.toml | cut -d'"' -f2)"
