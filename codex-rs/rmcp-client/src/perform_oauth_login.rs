@@ -266,7 +266,7 @@ fn spawn_callback_server(
         while let Ok(request) = server.recv() {
             let path = request.url().to_string();
             match parse_oauth_callback(&path, &expected_callback_path) {
-                CallbackOutcome::Success(OauthCallbackResult { code, state }) => {
+                CallbackOutcome::Success(OauthCallbackResult { code, state, iss }) => {
                     let response = Response::from_string(
                         "Authentication complete. You may close this window.",
                     );
@@ -274,7 +274,7 @@ fn spawn_callback_server(
                         eprintln!("Failed to respond to OAuth callback: {err}");
                     }
                     if let Err(err) =
-                        tx.send(CallbackResult::Success(OauthCallbackResult { code, state }))
+                        tx.send(CallbackResult::Success(OauthCallbackResult { code, state, iss }))
                     {
                         eprintln!("Failed to send OAuth callback: {err:?}");
                     }
@@ -306,6 +306,8 @@ fn spawn_callback_server(
 struct OauthCallbackResult {
     code: String,
     state: String,
+    /// RFC 9207 `iss`; servers that advertise support are rejected without it.
+    iss: Option<String>,
 }
 
 #[derive(Debug)]
@@ -331,6 +333,7 @@ fn parse_oauth_callback(path: &str, expected_callback_path: &str) -> CallbackOut
 
     let mut code = None;
     let mut state = None;
+    let mut iss = None;
     let mut error = None;
     let mut error_description = None;
 
@@ -345,6 +348,7 @@ fn parse_oauth_callback(path: &str, expected_callback_path: &str) -> CallbackOut
         match key {
             "code" => code = Some(decoded),
             "state" => state = Some(decoded),
+            "iss" => iss = Some(decoded),
             "error" => error = Some(decoded),
             "error_description" => error_description = Some(decoded),
             _ => {}
@@ -352,7 +356,7 @@ fn parse_oauth_callback(path: &str, expected_callback_path: &str) -> CallbackOut
     }
 
     if let (Some(code), Some(state)) = (code, state) {
-        return CallbackOutcome::Success(OauthCallbackResult { code, state });
+        return CallbackOutcome::Success(OauthCallbackResult { code, state, iss });
     }
 
     if error.is_some() || error_description.is_some() {
@@ -597,13 +601,14 @@ impl OauthLoginFlow {
             let OauthCallbackResult {
                 code,
                 state: csrf_state,
+                iss,
             } = match callback {
                 CallbackResult::Success(callback) => callback,
                 CallbackResult::Error(error) => return Err(anyhow!(error)),
             };
 
             self.oauth_state
-                .handle_callback(&code, &csrf_state)
+                .handle_callback_with_issuer(&code, &csrf_state, iss.as_deref())
                 .await
                 .context("failed to handle OAuth callback")?;
 
@@ -722,6 +727,7 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::CallbackOutcome;
+    use super::OauthCallbackResult;
     use super::OAuthHttpClientAdapter;
     use super::OAuthProviderError;
     use super::append_callback_id_to_redirect_uri;
@@ -801,6 +807,22 @@ mod tests {
     fn parse_oauth_callback_accepts_default_path() {
         let parsed = parse_oauth_callback("/callback?code=abc&state=xyz", "/callback");
         assert!(matches!(parsed, CallbackOutcome::Success(_)));
+    }
+
+    #[test]
+    fn parse_oauth_callback_keeps_issuer() {
+        let parsed = parse_oauth_callback(
+            "/callback?code=abc&state=xyz&iss=https%3A%2F%2Fclerk.example.com",
+            "/callback",
+        );
+        assert_eq!(
+            parsed,
+            CallbackOutcome::Success(OauthCallbackResult {
+                code: "abc".to_string(),
+                state: "xyz".to_string(),
+                iss: Some("https://clerk.example.com".to_string()),
+            })
+        );
     }
 
     #[test]
