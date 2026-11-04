@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: "Successful rust-release workflow run containing all six target artifacts"
+        description: "Successful rust-release workflow run containing all four target artifacts (macOS and Windows)"
         required: true
       tag:
         description: "Existing rust-vX.Y.Z tag to publish"
@@ -48,10 +48,8 @@ jobs:
           expected="$(printf '%s\n' \
             aarch64-apple-darwin \
             aarch64-pc-windows-msvc \
-            aarch64-unknown-linux-musl \
             x86_64-apple-darwin \
-            x86_64-pc-windows-msvc \
-            x86_64-unknown-linux-musl)"
+            x86_64-pc-windows-msvc)"
           [[ "$actual" == "$expected" ]]
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v4.3.0
@@ -69,8 +67,8 @@ jobs:
           cp scripts/install/install.sh dist/install.sh
           cp scripts/install/install.ps1 dist/install.ps1
           cd dist
-          [[ "$(find . -maxdepth 1 -name 'open-interpreter-package-*.tar.gz' | wc -l)" -eq 6 ]]
-          [[ "$(find . -maxdepth 1 -name 'open-interpreter-package-*.tar.zst' | wc -l)" -eq 6 ]]
+          [[ "$(find . -maxdepth 1 -name 'open-interpreter-package-*.tar.gz' | wc -l)" -eq 4 ]]
+          [[ "$(find . -maxdepth 1 -name 'open-interpreter-package-*.tar.zst' | wc -l)" -eq 4 ]]
           sha256sum open-interpreter-package-*.tar.gz open-interpreter-package-*.tar.zst \
             > codex-package_SHA256SUMS
 
