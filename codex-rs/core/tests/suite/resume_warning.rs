@@ -50,6 +50,7 @@ fn resume_history(
         summary: config
             .model_reasoning_summary
             .unwrap_or(ReasoningSummary::Auto),
+            developer_instructions_sync: None,
     };
 
     InitialHistory::Resumed(ResumedHistory {

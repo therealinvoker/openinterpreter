@@ -9,6 +9,7 @@ use codex_protocol::SessionId;
 use codex_protocol::ThreadId;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::protocol::DeveloperInstructionsSync;
 use codex_protocol::protocol::MultiAgentVersion;
 use codex_protocol::protocol::ThreadHistoryMode;
 use codex_protocol::protocol::TurnEnvironmentSelection;
@@ -361,6 +362,20 @@ impl TurnContext {
             .then_some(file_system_sandbox_policy)
     }
 
+    /// The developer instructions this turn carries, stamped as sent now.
+    pub(crate) fn developer_instructions_sync(&self) -> DeveloperInstructionsSync {
+        use sha2::Digest;
+        let digest = sha2::Sha256::digest(
+            self.developer_instructions.as_deref().unwrap_or_default().as_bytes(),
+        );
+        DeveloperInstructionsSync {
+            hash: digest.iter().map(|byte| format!("{byte:02x}")).collect(),
+            synced_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_secs() as i64),
+        }
+    }
+
     pub(crate) fn to_turn_context_item(&self) -> TurnContextItem {
         let workspace_roots = self.config.effective_workspace_roots();
         #[allow(deprecated)]
@@ -386,6 +401,7 @@ impl TurnContext {
             realtime_active: Some(self.realtime_active),
             effort: self.reasoning_effort.clone(),
             summary: ReasoningSummaryConfig::Auto,
+            developer_instructions_sync: Some(self.developer_instructions_sync()),
         }
     }
 

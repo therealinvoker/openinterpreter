@@ -1226,6 +1226,7 @@ async fn resume_candidate_matches_cwd_reads_latest_turn_context() -> std::io::Re
             realtime_active: None,
             effort: None,
             summary: codex_protocol::config_types::ReasoningSummary::Auto,
+            developer_instructions_sync: None,
         }),
     };
     writeln!(file, "{}", serde_json::to_string(&turn_context)?)?;

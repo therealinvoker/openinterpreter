@@ -3601,7 +3601,19 @@ impl Session {
             let state = self.state.lock().await;
             state.reference_context_item()
         };
-        let turn_context_item = turn_context.to_turn_context_item();
+        let mut turn_context_item = turn_context.to_turn_context_item();
+        let mut refresh_developer_instructions = false;
+        if let (Some(reference), Some(current)) = (
+            reference_context_item.as_ref(),
+            turn_context_item.developer_instructions_sync.as_ref(),
+        ) {
+            let (sync, refresh) = crate::context_manager::updates::developer_instructions_refresh(
+                reference.developer_instructions_sync.as_ref(),
+                current,
+            );
+            turn_context_item.developer_instructions_sync = Some(sync);
+            refresh_developer_instructions = refresh;
+        }
         let turn_context_changed = reference_context_item.as_ref() != Some(&turn_context_item);
         let should_inject_full_context = reference_context_item.is_none();
         let world_state = Arc::new(self.build_world_state_for_step(step_context).await);
@@ -3630,6 +3642,14 @@ impl Session {
             let mut context_items = self
                 .build_settings_update_items(reference_context_item.as_ref(), turn_context)
                 .await;
+            if refresh_developer_instructions
+                && let Some(item) =
+                    crate::context_manager::updates::build_developer_instructions_refresh_item(
+                        turn_context.developer_instructions.as_deref().unwrap_or_default(),
+                    )
+            {
+                context_items.push(item);
+            }
             let (world_state_items, world_state_item) = {
                 let mut state = self.state.lock().await;
                 let (fragments, rollout_item) =

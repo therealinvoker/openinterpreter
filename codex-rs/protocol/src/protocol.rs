@@ -3205,6 +3205,14 @@ pub struct TurnContextNetworkItem {
     pub denied_domains: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema, TS)]
+pub struct DeveloperInstructionsSync {
+    /// Fingerprint of the developer instructions last sent to the model.
+    pub hash: String,
+    /// Unix seconds when they were sent.
+    pub synced_at: i64,
+}
+
 /// Persist once per real user turn after computing that turn's model-visible
 /// context updates, and again after mid-turn compaction when replacement
 /// history re-establishes full context, so resume/fork replay can recover the
@@ -3248,6 +3256,10 @@ pub struct TurnContextItem {
     pub realtime_active: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<ReasoningEffortConfig>,
+    /// Which developer instructions the model has seen, and when they were last
+    /// sent, so a resumed thread can pick up changed instructions at most daily.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub developer_instructions_sync: Option<DeveloperInstructionsSync>,
     // Compatibility-only field written with a default value so older Codex
     // versions can deserialize turn-context rollout items. It is no longer
     // read by context reconstruction and should be removed in a future schema
@@ -5995,6 +6007,7 @@ mod tests {
             realtime_active: None,
             effort: None,
             summary: ReasoningSummaryConfig::Auto,
+            developer_instructions_sync: None,
         };
 
         let value = serde_json::to_value(item)?;

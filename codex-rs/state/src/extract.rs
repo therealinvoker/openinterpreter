@@ -416,6 +416,7 @@ mod tests {
                 realtime_active: None,
                 effort: None,
                 summary: codex_protocol::config_types::ReasoningSummary::Auto,
+                developer_instructions_sync: None,
             }),
             "test-provider",
         );
@@ -462,6 +463,7 @@ mod tests {
                 realtime_active: None,
                 effort: None,
                 summary: codex_protocol::config_types::ReasoningSummary::Auto,
+                developer_instructions_sync: None,
             }),
             "test-provider",
         );
@@ -504,6 +506,7 @@ mod tests {
                 realtime_active: None,
                 effort: Some(ReasoningEffort::High),
                 summary: codex_protocol::config_types::ReasoningSummary::Auto,
+                developer_instructions_sync: None,
             }),
             "test-provider",
         );
@@ -543,6 +546,7 @@ mod tests {
                 realtime_active: None,
                 effort: Some(ReasoningEffort::High),
                 summary: codex_protocol::config_types::ReasoningSummary::Auto,
+                developer_instructions_sync: None,
             }),
             "test-provider",
         );

@@ -17,6 +17,7 @@ use codex_protocol::config_types::Personality;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::protocol::DeveloperInstructionsSync;
 use codex_protocol::protocol::TurnContextItem;
 
 fn build_permissions_update_item(
@@ -190,6 +191,37 @@ pub(crate) fn build_model_instructions_update_item(
     Some(ModelSwitchInstructions::new(model_instructions).render())
 }
 
+/// How long a thread keeps the developer instructions it last saw before it
+/// picks up changed ones; resending them costs one uncached prompt block.
+pub(crate) const DEVELOPER_INSTRUCTIONS_REFRESH_SECS: i64 = 24 * 60 * 60;
+
+/// The sync state to persist for this turn, and whether to resend the current
+/// developer instructions. A thread with no recorded sync (written before this
+/// existed) refreshes on its next turn.
+pub(crate) fn developer_instructions_refresh(
+    previous: Option<&DeveloperInstructionsSync>,
+    current: &DeveloperInstructionsSync,
+) -> (DeveloperInstructionsSync, bool) {
+    match previous {
+        Some(previous) if previous.hash == current.hash => (previous.clone(), false),
+        Some(previous)
+            if current.synced_at - previous.synced_at < DEVELOPER_INSTRUCTIONS_REFRESH_SECS =>
+        {
+            (previous.clone(), false)
+        }
+        _ => (current.clone(), true),
+    }
+}
+
+pub(crate) fn build_developer_instructions_refresh_item(instructions: &str) -> Option<ResponseItem> {
+    if instructions.trim().is_empty() {
+        return None;
+    }
+    build_developer_update_item(vec![format!(
+        "<developer_instructions_update>\nThe app's instructions have changed since this conversation started. These replace the earlier developer instructions:\n\n{instructions}\n</developer_instructions_update>"
+    )])
+}
+
 pub(crate) fn build_developer_update_item(text_sections: Vec<String>) -> Option<ResponseItem> {
     build_text_message("developer", text_sections)
 }
@@ -265,4 +297,43 @@ pub(crate) fn build_settings_update_items(
     build_developer_update_item(developer_update_sections)
         .into_iter()
         .collect()
+}
+
+#[cfg(test)]
+mod developer_instructions_refresh_tests {
+    use super::*;
+
+    fn sync(hash: &str, synced_at: i64) -> DeveloperInstructionsSync {
+        DeveloperInstructionsSync { hash: hash.to_string(), synced_at }
+    }
+
+    #[test]
+    fn unchanged_instructions_keep_the_previous_sync() {
+        let previous = sync("a", 100);
+        assert_eq!(
+            developer_instructions_refresh(Some(&previous), &sync("a", 999_999)),
+            (previous, false)
+        );
+    }
+
+    #[test]
+    fn changed_instructions_wait_until_a_day_has_passed() {
+        let previous = sync("a", 1_000);
+        let soon = sync("b", 1_000 + DEVELOPER_INSTRUCTIONS_REFRESH_SECS - 1);
+        assert_eq!(developer_instructions_refresh(Some(&previous), &soon), (previous.clone(), false));
+        let later = sync("b", 1_000 + DEVELOPER_INSTRUCTIONS_REFRESH_SECS);
+        assert_eq!(developer_instructions_refresh(Some(&previous), &later), (later.clone(), true));
+    }
+
+    #[test]
+    fn threads_without_a_recorded_sync_refresh_once() {
+        let current = sync("b", 5);
+        assert_eq!(developer_instructions_refresh(None, &current), (current.clone(), true));
+    }
+
+    #[test]
+    fn empty_instructions_send_nothing() {
+        assert!(build_developer_instructions_refresh_item("  ").is_none());
+        assert!(build_developer_instructions_refresh_item("Ask first.").is_some());
+    }
 }

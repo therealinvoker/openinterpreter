@@ -1,0 +1,26 @@
+gitStatus: This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.
+
+Current branch: fix/oauth-discovery-timeout
+
+Main branch (you will usually use this for PRs): main
+
+Git user: therealinvoker
+
+Status:
+M src/context_manager/history_tests.rs
+ M src/context_manager/updates.rs
+ M src/session/mod.rs
+ M src/session/rollout_reconstruction_tests.rs
+ M src/session/tests.rs
+ M src/session/turn_context.rs
+ M tests/suite/resume_warning.rs
+ M ../protocol/src/protocol.rs
+ M ../rollout/src/recorder_tests.rs
+ M ../state/src/extract.rs
+
+Recent commits:
+f40fcd1 chore(release): version 0.0.34-bolt.2
+e4be525 fix(rmcp-client): pass the OAuth callback issuer so RFC 9207 servers sign in
+5c4404f ci(release): allow pre-release suffix in rust release tags
+ba85621 chore(release): version 0.0.34-bolt.1
+c4a40b3 fix(rmcp-client): bound OAuth discovery requests so sign-in can't stall

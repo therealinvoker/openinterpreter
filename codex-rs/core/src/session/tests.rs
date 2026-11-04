@@ -3117,6 +3117,7 @@ async fn record_initial_history_forked_hydrates_previous_turn_settings() {
         realtime_active: Some(turn_context.realtime_active),
         effort: turn_context.reasoning_effort.clone(),
         summary: codex_protocol::config_types::ReasoningSummary::Auto,
+        developer_instructions_sync: None,
     };
     let turn_id = previous_context_item
         .turn_id
