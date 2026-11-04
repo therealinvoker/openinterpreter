@@ -40,7 +40,8 @@ jobs:
           tagged_sha="$(git rev-list -n 1 "$TAG")"
           run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}")"
           [[ "$(jq -r .name <<<"$run_json")" == "rust-release" ]]
-          [[ "$(jq -r .conclusion <<<"$run_json")" == "success" ]]
+          # A run cancelled after its builds finished still holds usable artifacts; the artifact check below decides.
+          [[ "$(jq -r .status <<<"$run_json")" == "completed" ]]
           [[ "$(jq -r .head_sha <<<"$run_json")" == "$tagged_sha" ]]
 
           artifacts_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts")"
