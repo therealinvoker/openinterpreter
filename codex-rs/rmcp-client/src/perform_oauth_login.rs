@@ -273,9 +273,11 @@ fn spawn_callback_server(
                     if let Err(err) = request.respond(response) {
                         eprintln!("Failed to respond to OAuth callback: {err}");
                     }
-                    if let Err(err) =
-                        tx.send(CallbackResult::Success(OauthCallbackResult { code, state, iss }))
-                    {
+                    if let Err(err) = tx.send(CallbackResult::Success(OauthCallbackResult {
+                        code,
+                        state,
+                        iss,
+                    })) {
                         eprintln!("Failed to send OAuth callback: {err:?}");
                     }
                     break;
@@ -727,9 +729,9 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::CallbackOutcome;
-    use super::OauthCallbackResult;
     use super::OAuthHttpClientAdapter;
     use super::OAuthProviderError;
+    use super::OauthCallbackResult;
     use super::append_callback_id_to_redirect_uri;
     use super::append_query_param;
     use super::callback_id_from_server_url;

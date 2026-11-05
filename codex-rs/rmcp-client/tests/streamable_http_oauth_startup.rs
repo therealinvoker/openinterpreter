@@ -376,3 +376,148 @@ async fn expired_unrefreshable_startup_child() -> anyhow::Result<()> {
     assert!(is_authentication_required_error(&error));
     Ok(())
 }
+
+const SOON_EXPIRING_ACCESS_TOKEN: &str = "soon-expiring-access-token";
+const ROTATED_ACCESS_TOKEN: &str = "rotated-access-token";
+const ROTATED_REFRESH_TOKEN: &str = "rotated-refresh-token";
+
+/// Two connections share one stored grant from a server that rotates refresh tokens. Only one may
+/// spend the refresh token; the other has to pick up the rotated tokens, or the server would see a
+/// reused refresh token and revoke the grant.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn second_connection_adopts_tokens_another_connection_refreshed() -> anyhow::Result<()> {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/.well-known/oauth-authorization-server/mcp"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_endpoint": format!("{}/oauth/authorize", server.uri()),
+            "token_endpoint": format!("{}/oauth/token", server.uri()),
+            "scopes_supported": [""],
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("grant_type=refresh_token"))
+        .and(body_string_contains(format!(
+            "refresh_token={REFRESH_TOKEN}"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": ROTATED_ACCESS_TOKEN,
+            "token_type": "Bearer",
+            "expires_in": 7200,
+            "refresh_token": ROTATED_REFRESH_TOKEN,
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/mcp"))
+        .respond_with(|request: &Request| {
+            let body: Value = request.body_json().expect("valid JSON-RPC request");
+            let auth = request
+                .headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            let id = body.get("id").cloned().unwrap_or(Value::Null);
+            match body.get("method").and_then(Value::as_str) {
+                Some("initialize") => ResponseTemplate::new(200).set_body_json(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "protocolVersion": body
+                            .pointer("/params/protocolVersion")
+                            .cloned()
+                            .unwrap_or_else(|| json!("2025-06-18")),
+                        "capabilities": { "tools": {} },
+                        "serverInfo": { "name": "oauth-rotation-test", "version": "0.0.0-test" },
+                    },
+                })),
+                Some("notifications/initialized") => ResponseTemplate::new(202),
+                Some("tools/list") if auth == format!("Bearer {ROTATED_ACCESS_TOKEN}") => {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "tools": [] },
+                    }))
+                }
+                Some("tools/list") => ResponseTemplate::new(401),
+                method => ResponseTemplate::new(400)
+                    .set_body_string(format!("unexpected JSON-RPC method: {method:?}")),
+            }
+        })
+        .mount(&server)
+        .await;
+
+    let codex_home = TempDir::new()?;
+    let status = Command::new(std::env::current_exe()?)
+        .args([
+            "oauth_rotation_child",
+            "--exact",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("CODEX_HOME", codex_home.path())
+        .env(CHILD_SERVER_URL_ENV, format!("{}/mcp", server.uri()))
+        .status()
+        .await?;
+    assert!(status.success(), "OAuth rotation child failed: {status}");
+    server.verify().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "spawned by second_connection_adopts_tokens_another_connection_refreshed"]
+async fn oauth_rotation_child() -> anyhow::Result<()> {
+    let server_url = std::env::var(CHILD_SERVER_URL_ENV)?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_millis() as u64;
+    // Inside the coordinated refresh window but outside rmcp's own, so startup uses it as-is.
+    let mut response = OAuthTokenResponse::new(
+        AccessToken::new(SOON_EXPIRING_ACCESS_TOKEN.to_string()),
+        BasicTokenType::Bearer,
+        VendorExtraTokenFields::default(),
+    );
+    response.set_refresh_token(Some(RefreshToken::new(REFRESH_TOKEN.to_string())));
+    save_oauth_tokens(
+        SERVER_NAME,
+        &StoredOAuthTokens {
+            server_name: SERVER_NAME.to_string(),
+            url: server_url.clone(),
+            client_id: "test-client-id".to_string(),
+            token_response: WrappedOAuthTokenResponse(response),
+            expires_at: Some(now.saturating_add(/*rhs*/ 60_000)),
+        },
+        OAuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )?;
+
+    let mut clients = Vec::new();
+    for _ in 0..2 {
+        let client = RmcpClient::new_streamable_http_client(
+            SERVER_NAME,
+            &server_url,
+            /*bearer_token*/ None,
+            /*http_headers*/ None,
+            /*env_http_headers*/ None,
+            OAuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
+            Environment::default_for_tests().get_http_client(),
+            /*auth_provider*/ None,
+        )
+        .await?;
+        initialize_client(&client).await?;
+        clients.push(client);
+    }
+
+    for client in &clients {
+        client
+            .list_tools(/*params*/ None, Some(Duration::from_secs(5)))
+            .await?;
+    }
+    Ok(())
+}

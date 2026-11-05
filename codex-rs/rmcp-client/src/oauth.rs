@@ -62,12 +62,18 @@ use self::store_lock::OAuthStoreLockFailure;
 use codex_keyring_store::DefaultKeyringStore;
 use codex_keyring_store::KeyringStore;
 use rmcp::transport::auth::AuthorizationManager;
+use rmcp::transport::auth::CredentialStore;
+use rmcp::transport::auth::InMemoryCredentialStore;
+use rmcp::transport::auth::StoredCredentials;
 use tokio::sync::Mutex;
 
 use codex_utils_home_dir::find_codex_home;
 
 const MCP_OAUTH_SECRET_PREFIX: &str = "MCP_OAUTH";
 const REFRESH_SKEW_MILLIS: u64 = 30_000;
+// Larger than rmcp's own 30s in-request refresh buffer, so refreshes normally go through
+// `refresh_if_needed`, which coordinates with other connections, rather than rmcp's.
+const COORDINATED_REFRESH_SKEW_MILLIS: u64 = 120_000;
 
 /// Keychain service name, branded per product so Open Interpreter never
 /// reads or writes Codex's stored MCP credentials.
@@ -603,7 +609,20 @@ impl OAuthPersistor {
             guard.as_ref().and_then(|tokens| tokens.expires_at)
         };
 
-        if !token_needs_refresh(expires_at) {
+        if !token_expires_within(expires_at, COORDINATED_REFRESH_SKEW_MILLIS) {
+            return Ok(());
+        }
+
+        // Servers that rotate refresh tokens revoke the whole grant when a used one is presented
+        // again. Every connection (each thread, and each app-server process on this home) holds
+        // its own copy, so refreshes are serialized across processes and each one first adopts
+        // tokens another connection already refreshed.
+        let _refresh_lock =
+            tokio::task::spawn_blocking(|| OAuthStoreLock::acquire(OAuthStore::Refresh))
+                .await
+                .context("OAuth refresh lock task failed")??;
+
+        if self.adopt_newer_stored_tokens().await? {
             return Ok(());
         }
 
@@ -619,6 +638,67 @@ impl OAuthPersistor {
         }
 
         self.persist_if_needed().await
+    }
+
+    /// Replaces this connection's tokens with the stored ones when another connection has already
+    /// refreshed them. Returns whether it did.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "AuthorizationManager async access must be serialized through its mutex"
+    )]
+    async fn adopt_newer_stored_tokens(&self) -> Result<bool> {
+        let server_name = self.inner.server_name.clone();
+        let url = self.inner.url.clone();
+        let store_mode = self.inner.store_mode;
+        let keyring_backend_kind = self.inner.keyring_backend_kind;
+        let stored = tokio::task::spawn_blocking(move || {
+            load_oauth_tokens(&server_name, &url, store_mode, keyring_backend_kind)
+        })
+        .await
+        .context("OAuth token reload task failed")??;
+        let Some(stored) = stored else {
+            return Ok(false);
+        };
+        if token_expires_within(stored.expires_at, COORDINATED_REFRESH_SKEW_MILLIS) {
+            return Ok(false);
+        }
+        let mut last_credentials = self.inner.last_credentials.lock().await;
+        if last_credentials
+            .as_ref()
+            .is_some_and(|prev| prev.token_response == stored.token_response)
+        {
+            return Ok(false);
+        }
+
+        // `load_oauth_tokens` set `expires_in` to the time remaining, so it counts from now.
+        let token_response = stored.token_response.0.clone();
+        let granted_scopes = token_response
+            .scopes()
+            .map(|scopes| scopes.iter().map(|scope| scope.to_string()).collect())
+            .unwrap_or_default();
+        let credentials = StoredCredentials::new(
+            stored.client_id.clone(),
+            Some(token_response),
+            granted_scopes,
+            Some(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+            ),
+        );
+        let store = InMemoryCredentialStore::new();
+        store
+            .save(credentials)
+            .await
+            .context("failed to stage refreshed OAuth tokens")?;
+        {
+            let manager = self.inner.authorization_manager.clone();
+            let mut guard = manager.lock().await;
+            guard.set_credential_store(store);
+        }
+        *last_credentials = Some(stored);
+        Ok(true)
     }
 }
 
@@ -766,6 +846,10 @@ fn expires_in_from_timestamp(expires_at: u64) -> Option<u64> {
 }
 
 fn token_needs_refresh(expires_at: Option<u64>) -> bool {
+    token_expires_within(expires_at, REFRESH_SKEW_MILLIS)
+}
+
+fn token_expires_within(expires_at: Option<u64>, skew_millis: u64) -> bool {
     let Some(expires_at) = expires_at else {
         return false;
     };
@@ -775,7 +859,7 @@ fn token_needs_refresh(expires_at: Option<u64>) -> bool {
         .unwrap_or_else(|_| Duration::from_secs(0))
         .as_millis() as u64;
 
-    now.saturating_add(REFRESH_SKEW_MILLIS) >= expires_at
+    now.saturating_add(skew_millis) >= expires_at
 }
 
 fn compute_store_key(server_name: &str, server_url: &str) -> Result<String> {

@@ -26,6 +26,9 @@ const LOCK_CONTENTION_EVENT_TARGET: &str = "codex_rmcp_client::oauth::store_lock
 pub(super) enum OAuthStore {
     File,
     Secrets,
+    /// Serializes token refreshes, which span a network round trip and a save. Separate from
+    /// the store locks because the reload and save inside a refresh take those.
+    Refresh,
 }
 
 impl OAuthStore {
@@ -33,6 +36,7 @@ impl OAuthStore {
         match self {
             Self::File => "file-store.lock",
             Self::Secrets => "secrets-store.lock",
+            Self::Refresh => "refresh.lock",
         }
     }
 }
@@ -42,6 +46,7 @@ impl std::fmt::Display for OAuthStore {
         match self {
             Self::File => f.write_str("fallback file"),
             Self::Secrets => f.write_str("encrypted secrets"),
+            Self::Refresh => f.write_str("token refresh"),
         }
     }
 }
