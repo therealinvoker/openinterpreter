@@ -1,5 +1,6 @@
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::request_user_input::RequestUserInputArgs;
+use codex_protocol::request_user_input::RequestUserInputOptionPreview;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
@@ -21,6 +22,26 @@ pub fn create_request_user_input_tool(description: String) -> ToolSpec {
                 "One short sentence explaining impact/tradeoff if selected.".to_string(),
             )),
         ),
+        (
+            "preview".to_string(),
+            JsonSchema::object(
+                BTreeMap::from([
+                    (
+                        "colors".to_string(),
+                        JsonSchema::array(
+                            JsonSchema::string(None),
+                            Some("Up to 6 hex colors (#rrggbb) shown as swatches.".to_string()),
+                        ),
+                    ),
+                    (
+                        "font".to_string(),
+                        JsonSchema::string(Some("CSS font family shown as a type sample.".to_string())),
+                    ),
+                ]),
+                None,
+                Some(false.into()),
+            ),
+        ),
     ]);
 
     let options_schema = JsonSchema::array(JsonSchema::object(
@@ -28,7 +49,7 @@ pub fn create_request_user_input_tool(description: String) -> ToolSpec {
             Some(vec!["label".to_string(), "description".to_string()]),
             Some(false.into()),
         ), Some(
-            "Provide 2-3 mutually exclusive choices. Put the recommended option first and suffix its label with \"(Recommended)\". Do not include an \"Other\" option in this list; the client will add a free-form \"Other\" option automatically."
+            "Provide 2-6 choices, mutually exclusive unless multiSelect is set. Optionally give each a preview (palette and font) to show it as a card, e.g. for visual themes. Put the recommended option first and suffix its label with \"(Recommended)\". Do not include an \"Other\" option in this list; the client will add a free-form \"Other\" option automatically."
                 .to_string(),
         ));
 
@@ -52,6 +73,12 @@ pub fn create_request_user_input_tool(description: String) -> ToolSpec {
             )),
         ),
         ("options".to_string(), options_schema),
+        (
+            "multiSelect".to_string(),
+            JsonSchema::boolean(Some(
+                "Let the user pick several options (checkboxes); the answer lists every pick.".to_string(),
+            )),
+        ),
     ]);
 
     let questions_schema = JsonSchema::array(
@@ -65,7 +92,7 @@ pub fn create_request_user_input_tool(description: String) -> ToolSpec {
             ]),
             Some(false.into()),
         ),
-        Some("Questions to show the user. Prefer 1 and do not exceed 3".to_string()),
+        Some("Questions to show the user. Prefer 1; group related questions in one call, up to 10.".to_string()),
     );
 
     let auto_resolution_ms_schema = JsonSchema::number(Some(format!(
@@ -118,6 +145,9 @@ pub fn normalize_request_user_input_args(
 
     for question in &mut args.questions {
         question.is_other = true;
+        for option in question.options.iter_mut().flatten() {
+            option.preview = option.preview.take().and_then(sanitize_option_preview);
+        }
     }
 
     if let Some(auto_resolution_ms) = args.auto_resolution_ms {
@@ -136,10 +166,36 @@ pub fn normalize_request_user_input_args(
     Ok(args)
 }
 
+fn sanitize_option_preview(
+    preview: RequestUserInputOptionPreview,
+) -> Option<RequestUserInputOptionPreview> {
+    let colors: Vec<String> = preview
+        .colors
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|color| {
+            let hex = color.strip_prefix('#').unwrap_or("");
+            matches!(hex.len(), 3 | 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit())
+        })
+        .take(6)
+        .collect();
+    let font = preview
+        .font
+        .map(|font| font.trim().chars().take(120).collect::<String>())
+        .filter(|font| !font.is_empty());
+    if colors.is_empty() && font.is_none() {
+        return None;
+    }
+    Some(RequestUserInputOptionPreview {
+        colors: (!colors.is_empty()).then_some(colors),
+        font,
+    })
+}
+
 pub fn request_user_input_tool_description(available_modes: &[ModeKind]) -> String {
     let allowed_modes = format_allowed_modes(available_modes);
     format!(
-        "Request user input for one to three short questions and wait for the response. Set autoResolutionMs, from {MIN_AUTO_RESOLUTION_MS} to {MAX_AUTO_RESOLUTION_MS} milliseconds, only when the question is useful but non-blocking and continuing with best judgment is acceptable if the user does not answer; omit it when explicit user input is required. This tool is only available in {allowed_modes}."
+        "Request user input for one or more short questions (up to 10) and wait for the response. Set autoResolutionMs, from {MIN_AUTO_RESOLUTION_MS} to {MAX_AUTO_RESOLUTION_MS} milliseconds, only when the question is useful but non-blocking and continuing with best judgment is acceptable if the user does not answer; omit it when explicit user input is required. This tool is only available in {allowed_modes}."
     )
 }
 

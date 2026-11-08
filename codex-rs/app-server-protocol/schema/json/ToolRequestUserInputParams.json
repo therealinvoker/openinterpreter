@@ -9,12 +9,43 @@
         },
         "label": {
           "type": "string"
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolRequestUserInputOptionPreview"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "description",
         "label"
       ],
+      "type": "object"
+    },
+    "ToolRequestUserInputOptionPreview": {
+      "description": "EXPERIMENTAL. Palette swatches and a font shown as a card for a request_user_input option.",
+      "properties": {
+        "colors": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "font": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "ToolRequestUserInputQuestion": {
@@ -31,6 +62,10 @@
           "type": "boolean"
         },
         "isSecret": {
+          "default": false,
+          "type": "boolean"
+        },
+        "multiSelect": {
           "default": false,
           "type": "boolean"
         },

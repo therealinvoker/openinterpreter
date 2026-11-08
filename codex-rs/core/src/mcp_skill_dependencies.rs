@@ -219,6 +219,7 @@ async fn should_install_mcp_dependencies(
 
     let server_list = format_missing_mcp_dependencies(missing);
     let question = RequestUserInputQuestion {
+ multi_select: false,
         id: SKILL_MCP_DEPENDENCY_PROMPT_ID.to_string(),
         header: "Install MCP servers?".to_string(),
         question: format!(
@@ -228,12 +229,14 @@ async fn should_install_mcp_dependencies(
         is_secret: false,
         options: Some(vec![
             RequestUserInputQuestionOption {
+ preview: None,
                 label: MCP_DEPENDENCY_OPTION_INSTALL.to_string(),
                 description:
                     "Install and enable the missing MCP servers in your global config."
                         .to_string(),
             },
             RequestUserInputQuestionOption {
+ preview: None,
                 label: MCP_DEPENDENCY_OPTION_SKIP.to_string(),
                 description: "Skip installation for now and do not show again for these MCP servers in this session."
                     .to_string(),

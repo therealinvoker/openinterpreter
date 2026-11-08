@@ -1547,6 +1547,7 @@ mod tests {
 
     fn question_with_options(id: &str, header: &str) -> ToolRequestUserInputQuestion {
         ToolRequestUserInputQuestion {
+ multi_select: false,
             id: id.to_string(),
             header: header.to_string(),
             question: "Choose an option.".to_string(),
@@ -1554,14 +1555,17 @@ mod tests {
             is_secret: false,
             options: Some(vec![
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Option 1".to_string(),
                     description: "First choice.".to_string(),
                 },
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Option 2".to_string(),
                     description: "Second choice.".to_string(),
                 },
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Option 3".to_string(),
                     description: "Third choice.".to_string(),
                 },
@@ -1571,6 +1575,7 @@ mod tests {
 
     fn question_with_options_and_other(id: &str, header: &str) -> ToolRequestUserInputQuestion {
         ToolRequestUserInputQuestion {
+ multi_select: false,
             id: id.to_string(),
             header: header.to_string(),
             question: "Choose an option.".to_string(),
@@ -1578,14 +1583,17 @@ mod tests {
             is_secret: false,
             options: Some(vec![
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Option 1".to_string(),
                     description: "First choice.".to_string(),
                 },
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Option 2".to_string(),
                     description: "Second choice.".to_string(),
                 },
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Option 3".to_string(),
                     description: "Third choice.".to_string(),
                 },
@@ -1595,6 +1603,7 @@ mod tests {
 
     fn question_with_wrapped_options(id: &str, header: &str) -> ToolRequestUserInputQuestion {
         ToolRequestUserInputQuestion {
+ multi_select: false,
             id: id.to_string(),
             header: header.to_string(),
             question: "Choose the next step for this task.".to_string(),
@@ -1602,18 +1611,21 @@ mod tests {
             is_secret: false,
             options: Some(vec![
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Discuss a code change".to_string(),
                     description:
                         "Walk through a plan, then implement it together with careful checks."
                             .to_string(),
                 },
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Run targeted tests".to_string(),
                     description:
                         "Pick the most relevant crate and validate the current behavior first."
                             .to_string(),
                 },
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Review the diff".to_string(),
                     description:
                         "Summarize the changes and highlight the most important risks and gaps."
@@ -1625,6 +1637,7 @@ mod tests {
 
     fn question_with_very_long_option_text(id: &str, header: &str) -> ToolRequestUserInputQuestion {
         ToolRequestUserInputQuestion {
+ multi_select: false,
             id: id.to_string(),
             header: header.to_string(),
             question: "Choose one option.".to_string(),
@@ -1632,10 +1645,12 @@ mod tests {
             is_secret: false,
             options: Some(vec![
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Job: running/completed/failed/expired; Run/Experiment: succeeded/failed/unknown (Recommended when triaging long-running background work and status transitions)".to_string(),
                     description: "Keep async job statuses for progress tracking and include enough context for debugging retries, stale workers, and unexpected expiration paths.".to_string(),
                 },
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Add a short status model".to_string(),
                     description: "Simpler labels with less detail for quick rollouts.".to_string(),
                 },
@@ -1645,6 +1660,7 @@ mod tests {
 
     fn question_with_long_scroll_options(id: &str, header: &str) -> ToolRequestUserInputQuestion {
         ToolRequestUserInputQuestion {
+ multi_select: false,
             id: id.to_string(),
             header: header.to_string(),
             question:
@@ -1654,18 +1670,22 @@ mod tests {
             is_secret: false,
             options: Some(vec![
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Use Detailed Hint A (Recommended)".to_string(),
                     description: "Select this if you want a deliberately overextended explanatory hint that reads like a miniature specification, including context, rationale, expected behavior, and an explicit statement that this choice is mainly for testing how gracefully the interface wraps, truncates, and preserves readability under unusually verbose helper text conditions.".to_string(),
                 },
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Use Detailed Hint B".to_string(),
                     description: "Select this if you want an equally verbose but differently phrased guidance block that emphasizes user-facing clarity, spacing tolerance, multiline wrapping, visual hierarchy interactions, and whether long descriptive metadata remains understandable when scanned quickly in a constrained layout where cognitive load is already high.".to_string(),
                 },
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "Use Detailed Hint C".to_string(),
                     description: "Select this when you specifically want to verify that navigating downward will keep the currently highlighted option visible, even when previous options consume many wrapped lines and would otherwise push the selection out of the viewport.".to_string(),
                 },
                 ToolRequestUserInputOption {
+ preview: None,
                     label: "None of the above".to_string(),
                     description:
                         "Use this only if the previous long-form options do not apply.".to_string(),
@@ -1676,6 +1696,7 @@ mod tests {
 
     fn question_without_options(id: &str, header: &str) -> ToolRequestUserInputQuestion {
         ToolRequestUserInputQuestion {
+ multi_select: false,
             id: id.to_string(),
             header: header.to_string(),
             question: "Share details.".to_string(),
@@ -3502,6 +3523,7 @@ mod tests {
             request_event(
                 "turn-1",
                 vec![ToolRequestUserInputQuestion {
+ multi_select: false,
                     id: "q1".to_string(),
                     header: "Next Step".to_string(),
                     question: "What would you like to do next?".to_string(),
@@ -3509,22 +3531,27 @@ mod tests {
                     is_secret: false,
                     options: Some(vec![
                         ToolRequestUserInputOption {
+ preview: None,
                             label: "Discuss a code change (Recommended)".to_string(),
                             description: "Walk through a plan and edit code together.".to_string(),
                         },
                         ToolRequestUserInputOption {
+ preview: None,
                             label: "Run tests".to_string(),
                             description: "Pick a crate and run its tests.".to_string(),
                         },
                         ToolRequestUserInputOption {
+ preview: None,
                             label: "Review a diff".to_string(),
                             description: "Summarize or review current changes.".to_string(),
                         },
                         ToolRequestUserInputOption {
+ preview: None,
                             label: "Refactor".to_string(),
                             description: "Tighten structure and remove dead code.".to_string(),
                         },
                         ToolRequestUserInputOption {
+ preview: None,
                             label: "Ship it".to_string(),
                             description: "Finalize and open a PR.".to_string(),
                         },
@@ -3554,6 +3581,7 @@ mod tests {
             request_event(
                 "turn-1",
                 vec![ToolRequestUserInputQuestion {
+ multi_select: false,
                     id: "q1".to_string(),
                     header: "Next Step".to_string(),
                     question: "What would you like to do next?".to_string(),
@@ -3561,22 +3589,27 @@ mod tests {
                     is_secret: false,
                     options: Some(vec![
                         ToolRequestUserInputOption {
+ preview: None,
                             label: "Discuss a code change (Recommended)".to_string(),
                             description: "Walk through a plan and edit code together.".to_string(),
                         },
                         ToolRequestUserInputOption {
+ preview: None,
                             label: "Run tests".to_string(),
                             description: "Pick a crate and run its tests.".to_string(),
                         },
                         ToolRequestUserInputOption {
+ preview: None,
                             label: "Review a diff".to_string(),
                             description: "Summarize or review current changes.".to_string(),
                         },
                         ToolRequestUserInputOption {
+ preview: None,
                             label: "Refactor".to_string(),
                             description: "Tighten structure and remove dead code.".to_string(),
                         },
                         ToolRequestUserInputOption {
+ preview: None,
                             label: "Ship it".to_string(),
                             description: "Finalize and open a PR.".to_string(),
                         },

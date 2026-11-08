@@ -66,6 +66,7 @@ use codex_app_server_protocol::ThreadStatus;
 use codex_app_server_protocol::ThreadTokenUsage;
 use codex_app_server_protocol::ThreadTokenUsageUpdatedNotification;
 use codex_app_server_protocol::ToolRequestUserInputOption;
+use codex_app_server_protocol::ToolRequestUserInputOptionPreview;
 use codex_app_server_protocol::ToolRequestUserInputParams;
 use codex_app_server_protocol::ToolRequestUserInputQuestion;
 use codex_app_server_protocol::ToolRequestUserInputResponse;
@@ -691,12 +692,19 @@ pub(crate) async fn apply_bespoke_event_handling(
                     question: question.question,
                     is_other: question.is_other,
                     is_secret: question.is_secret,
+                    multi_select: question.multi_select,
                     options: question.options.map(|options| {
                         options
                             .into_iter()
                             .map(|option| ToolRequestUserInputOption {
                                 label: option.label,
                                 description: option.description,
+                                preview: option.preview.map(|preview| {
+                                    ToolRequestUserInputOptionPreview {
+                                        colors: preview.colors,
+                                        font: preview.font,
+                                    }
+                                }),
                             })
                             .collect()
                     }),

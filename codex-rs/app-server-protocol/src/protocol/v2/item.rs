@@ -1598,6 +1598,22 @@ impl From<DynamicToolCallOutputContentItem>
 pub struct ToolRequestUserInputOption {
     pub label: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub preview: Option<ToolRequestUserInputOptionPreview>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+/// EXPERIMENTAL. Palette swatches and a font shown as a card for a request_user_input option.
+pub struct ToolRequestUserInputOptionPreview {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub colors: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub font: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -1612,6 +1628,8 @@ pub struct ToolRequestUserInputQuestion {
     pub is_other: bool,
     #[serde(default)]
     pub is_secret: bool,
+    #[serde(default)]
+    pub multi_select: bool,
     pub options: Option<Vec<ToolRequestUserInputOption>>,
 }
 

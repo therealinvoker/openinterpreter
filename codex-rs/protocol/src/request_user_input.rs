@@ -9,6 +9,17 @@ use ts_rs::TS;
 pub struct RequestUserInputQuestionOption {
     pub label: String,
     pub description: String,
+    /// Optional visual preview (palette swatches and a font) the client can render as a card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<RequestUserInputOptionPreview>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+pub struct RequestUserInputOptionPreview {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colors: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -24,6 +35,11 @@ pub struct RequestUserInputQuestion {
     #[schemars(rename = "isSecret")]
     #[ts(rename = "isSecret")]
     pub is_secret: bool,
+    /// The user may pick several options; answers then lists every pick.
+    #[serde(rename = "multiSelect", default)]
+    #[schemars(rename = "multiSelect")]
+    #[ts(rename = "multiSelect")]
+    pub multi_select: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<Vec<RequestUserInputQuestionOption>>,
 }

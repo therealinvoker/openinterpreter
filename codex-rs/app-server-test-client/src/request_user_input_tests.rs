@@ -18,6 +18,7 @@ fn collects_option_and_free_form_answers() {
         item_id: "item-1".to_string(),
         questions: vec![
             ToolRequestUserInputQuestion {
+ multi_select: false,
                 id: "target".to_string(),
                 header: "Target".to_string(),
                 question: "Which target?".to_string(),
@@ -25,16 +26,19 @@ fn collects_option_and_free_form_answers() {
                 is_secret: false,
                 options: Some(vec![
                     ToolRequestUserInputOption {
+ preview: None,
                         label: "Core".to_string(),
                         description: "Inspect core".to_string(),
                     },
                     ToolRequestUserInputOption {
+ preview: None,
                         label: "TUI".to_string(),
                         description: "Inspect TUI".to_string(),
                     },
                 ]),
             },
             ToolRequestUserInputQuestion {
+ multi_select: false,
                 id: "details".to_string(),
                 header: "Details".to_string(),
                 question: "Anything else?".to_string(),
@@ -92,12 +96,14 @@ fn retries_invalid_selection_and_collects_other_answer() {
         turn_id: "turn-1".to_string(),
         item_id: "item-1".to_string(),
         questions: vec![ToolRequestUserInputQuestion {
+ multi_select: false,
             id: "target".to_string(),
             header: "Target".to_string(),
             question: "Which target?".to_string(),
             is_other: true,
             is_secret: false,
             options: Some(vec![ToolRequestUserInputOption {
+ preview: None,
                 label: "Core".to_string(),
                 description: "Inspect core".to_string(),
             }]),

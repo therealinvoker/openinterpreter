@@ -1958,6 +1958,7 @@ mod tests {
                         turn_id: "turn-1".to_string(),
                         item_id: "call-1".to_string(),
                         questions: vec![ToolRequestUserInputQuestion {
+ multi_select: false,
                             id: "question-1".to_string(),
                             header: "Mode".to_string(),
                             question: "Pick one".to_string(),
@@ -2020,6 +2021,7 @@ mod tests {
                             turn_id: "turn-1".to_string(),
                             item_id: "call-1".to_string(),
                             questions: vec![ToolRequestUserInputQuestion {
+ multi_select: false,
                                 id: "question-1".to_string(),
                                 header: "Mode".to_string(),
                                 question: "Pick one".to_string(),

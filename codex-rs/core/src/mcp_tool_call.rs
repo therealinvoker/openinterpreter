@@ -1629,27 +1629,32 @@ fn build_mcp_tool_approval_question(
     let question = format!("{}?", question.trim_end_matches('?'));
 
     let mut options = vec![RequestUserInputQuestionOption {
+ preview: None,
         label: MCP_TOOL_APPROVAL_ACCEPT.to_string(),
         description: "Run the tool and continue.".to_string(),
     }];
     if prompt_options.allow_session_remember {
         options.push(RequestUserInputQuestionOption {
+ preview: None,
             label: MCP_TOOL_APPROVAL_ACCEPT_FOR_SESSION.to_string(),
             description: "Run the tool and remember this choice for this session.".to_string(),
         });
     }
     if prompt_options.allow_persistent_approval {
         options.push(RequestUserInputQuestionOption {
+ preview: None,
             label: MCP_TOOL_APPROVAL_ACCEPT_AND_REMEMBER.to_string(),
             description: "Run the tool and remember this choice for future tool calls.".to_string(),
         });
     }
     options.push(RequestUserInputQuestionOption {
+ preview: None,
         label: MCP_TOOL_APPROVAL_CANCEL.to_string(),
         description: "Cancel this tool call.".to_string(),
     });
 
     RequestUserInputQuestion {
+ multi_select: false,
         id: question_id,
         header: "Approve app tool call?".to_string(),
         question,

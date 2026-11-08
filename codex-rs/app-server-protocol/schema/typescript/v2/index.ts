@@ -487,6 +487,7 @@ export type { ThreadUnsubscribeStatus } from "./ThreadUnsubscribeStatus";
 export type { TokenUsageBreakdown } from "./TokenUsageBreakdown";
 export type { ToolRequestUserInputAnswer } from "./ToolRequestUserInputAnswer";
 export type { ToolRequestUserInputOption } from "./ToolRequestUserInputOption";
+export type { ToolRequestUserInputOptionPreview } from "./ToolRequestUserInputOptionPreview";
 export type { ToolRequestUserInputParams } from "./ToolRequestUserInputParams";
 export type { ToolRequestUserInputQuestion } from "./ToolRequestUserInputQuestion";
 export type { ToolRequestUserInputResponse } from "./ToolRequestUserInputResponse";

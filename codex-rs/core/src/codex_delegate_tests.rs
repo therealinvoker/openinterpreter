@@ -455,6 +455,7 @@ async fn delegated_mcp_guardian_abort_returns_synthetic_decline_answer() {
             call_id: "call-1".to_string(),
             turn_id: "child-turn-1".to_string(),
             questions: vec![RequestUserInputQuestion {
+ multi_select: false,
                 id: format!("{MCP_TOOL_APPROVAL_QUESTION_ID_PREFIX}_call-1"),
                 header: "Approve app tool call?".to_string(),
                 question: "Allow this app tool?".to_string(),
@@ -502,6 +503,7 @@ async fn delegated_mcp_user_reviewer_returns_none_without_metadata() {
         call_id: "call-1".to_string(),
         turn_id: "child-turn-1".to_string(),
         questions: vec![RequestUserInputQuestion {
+ multi_select: false,
             id: format!("{MCP_TOOL_APPROVAL_QUESTION_ID_PREFIX}_call-1"),
             header: "Approve app tool call?".to_string(),
             question: "Allow this app tool?".to_string(),
