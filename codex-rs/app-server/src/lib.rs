@@ -103,6 +103,7 @@ mod fuzzy_file_search;
 mod image_url;
 pub mod in_process;
 mod interpreter_catalog;
+mod log_filters;
 mod mcp_refresh;
 mod message_processor;
 mod models;
@@ -660,11 +661,13 @@ pub async fn run_main_with_transport_options(
             .with_writer(std::io::stderr)
             .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
             .with_filter(EnvFilter::from_default_env())
+            .with_filter(log_filters::BenignSessionDeleteFilter)
             .boxed(),
         LogFormat::Default => tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
             .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
             .with_filter(EnvFilter::from_default_env())
+            .with_filter(log_filters::BenignSessionDeleteFilter)
             .boxed(),
     };
 
