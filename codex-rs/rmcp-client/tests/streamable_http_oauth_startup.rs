@@ -381,12 +381,7 @@ const SOON_EXPIRING_ACCESS_TOKEN: &str = "soon-expiring-access-token";
 const ROTATED_ACCESS_TOKEN: &str = "rotated-access-token";
 const ROTATED_REFRESH_TOKEN: &str = "rotated-refresh-token";
 
-/// Two connections share one stored grant from a server that rotates refresh tokens. Only one may
-/// spend the refresh token; the other has to pick up the rotated tokens, or the server would see a
-/// reused refresh token and revoke the grant.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn second_connection_adopts_tokens_another_connection_refreshed() -> anyhow::Result<()> {
-    let server = MockServer::start().await;
+async fn mount_rotating_token_server(server: &MockServer) {
     Mock::given(method("GET"))
         .and(path("/.well-known/oauth-authorization-server/mcp"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -394,7 +389,7 @@ async fn second_connection_adopts_tokens_another_connection_refreshed() -> anyho
             "token_endpoint": format!("{}/oauth/token", server.uri()),
             "scopes_supported": [""],
         })))
-        .mount(&server)
+        .mount(server)
         .await;
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
@@ -409,12 +404,14 @@ async fn second_connection_adopts_tokens_another_connection_refreshed() -> anyho
             "refresh_token": ROTATED_REFRESH_TOKEN,
         })))
         .expect(1)
-        .mount(&server)
+        .mount(server)
         .await;
     Mock::given(method("POST"))
         .and(path("/mcp"))
         .respond_with(|request: &Request| {
-            let body: Value = request.body_json().expect("valid JSON-RPC request");
+            let Ok(body) = request.body_json::<Value>() else {
+                return ResponseTemplate::new(400).set_body_string("invalid JSON-RPC request");
+            };
             let auth = request
                 .headers
                 .get("authorization")
@@ -448,24 +445,31 @@ async fn second_connection_adopts_tokens_another_connection_refreshed() -> anyho
                     .set_body_string(format!("unexpected JSON-RPC method: {method:?}")),
             }
         })
-        .mount(&server)
+        .mount(server)
         .await;
+}
 
+async fn run_rotation_child(server: &MockServer, child: &str) -> anyhow::Result<()> {
     let codex_home = TempDir::new()?;
     let status = Command::new(std::env::current_exe()?)
-        .args([
-            "oauth_rotation_child",
-            "--exact",
-            "--ignored",
-            "--nocapture",
-        ])
+        .args([child, "--exact", "--ignored", "--nocapture"])
         .env("CODEX_HOME", codex_home.path())
         .env(CHILD_SERVER_URL_ENV, format!("{}/mcp", server.uri()))
         .status()
         .await?;
-    assert!(status.success(), "OAuth rotation child failed: {status}");
+    assert!(status.success(), "{child} failed: {status}");
     server.verify().await;
     Ok(())
+}
+
+/// Two connections share one stored grant from a server that rotates refresh tokens. Only one may
+/// spend the refresh token; the other has to pick up the rotated tokens, or the server would see a
+/// reused refresh token and revoke the grant.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn second_connection_adopts_tokens_another_connection_refreshed() -> anyhow::Result<()> {
+    let server = MockServer::start().await;
+    mount_rotating_token_server(&server).await;
+    run_rotation_child(&server, "oauth_rotation_child").await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -519,5 +523,62 @@ async fn oauth_rotation_child() -> anyhow::Result<()> {
             .list_tools(/*params*/ None, Some(Duration::from_secs(5)))
             .await?;
     }
+    Ok(())
+}
+
+/// Both connections open with an already-expired token, as when Bolt starts after the token
+/// lapsed. Neither may let rmcp refresh on its own, or the server sees the refresh token twice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn connections_opened_with_expired_tokens_refresh_once() -> anyhow::Result<()> {
+    let server = MockServer::start().await;
+    mount_rotating_token_server(&server).await;
+    run_rotation_child(&server, "expired_startup_rotation_child").await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "spawned by connections_opened_with_expired_tokens_refresh_once"]
+async fn expired_startup_rotation_child() -> anyhow::Result<()> {
+    let server_url = std::env::var(CHILD_SERVER_URL_ENV)?;
+    let mut response = OAuthTokenResponse::new(
+        AccessToken::new(SOON_EXPIRING_ACCESS_TOKEN.to_string()),
+        BasicTokenType::Bearer,
+        VendorExtraTokenFields::default(),
+    );
+    response.set_refresh_token(Some(RefreshToken::new(REFRESH_TOKEN.to_string())));
+    save_oauth_tokens(
+        SERVER_NAME,
+        &StoredOAuthTokens {
+            server_name: SERVER_NAME.to_string(),
+            url: server_url.clone(),
+            client_id: "test-client-id".to_string(),
+            token_response: WrappedOAuthTokenResponse(response),
+            expires_at: Some(0),
+        },
+        OAuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )?;
+
+    let connect = |url: String| async move {
+        let client = RmcpClient::new_streamable_http_client(
+            SERVER_NAME,
+            &url,
+            /*bearer_token*/ None,
+            /*http_headers*/ None,
+            /*env_http_headers*/ None,
+            OAuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
+            Environment::default_for_tests().get_http_client(),
+            /*auth_provider*/ None,
+        )
+        .await?;
+        initialize_client(&client).await?;
+        client
+            .list_tools(/*params*/ None, Some(Duration::from_secs(5)))
+            .await?;
+        anyhow::Ok(client)
+    };
+    let (first, second) = tokio::join!(connect(server_url.clone()), connect(server_url));
+    first?;
+    second?;
     Ok(())
 }

@@ -1207,6 +1207,14 @@ async fn create_oauth_transport_and_runtime(
         Some(initial_tokens),
     );
 
+    // rmcp refreshes an expired token on the first request without coordinating with other
+    // connections, so a connection opened with expired tokens must refresh here first.
+    if let Err(error) = runtime.refresh_if_needed().await {
+        warn!(
+            "failed to refresh OAuth tokens for server `{server_name}` before connecting: {error}"
+        );
+    }
+
     Ok((transport, runtime))
 }
 
