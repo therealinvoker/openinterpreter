@@ -53,6 +53,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
+use tracing::info;
 use tracing::warn;
 
 use self::store_lock::OAuthStore;
@@ -61,6 +62,7 @@ use self::store_lock::OAuthStoreLockFailure;
 
 use codex_keyring_store::DefaultKeyringStore;
 use codex_keyring_store::KeyringStore;
+use rmcp::transport::auth::AuthError;
 use rmcp::transport::auth::AuthorizationManager;
 use rmcp::transport::auth::CredentialStore;
 use rmcp::transport::auth::InMemoryCredentialStore;
@@ -623,18 +625,54 @@ impl OAuthPersistor {
                 .context("OAuth refresh lock task failed")??;
 
         if self.adopt_newer_stored_tokens().await? {
+            info!(
+                server = %self.inner.server_name,
+                pid = std::process::id(),
+                "OAuth refresh skipped: adopted tokens another connection already refreshed"
+            );
             return Ok(());
         }
 
-        {
+        let used = {
+            let guard = self.inner.last_credentials.lock().await;
+            guard
+                .as_ref()
+                .map(|tokens| refresh_token_fingerprint(&tokens.token_response.0))
+                .unwrap_or_default()
+        };
+        info!(
+            server = %self.inner.server_name,
+            pid = std::process::id(),
+            refresh = %used,
+            "OAuth refresh starting"
+        );
+        let refreshed = {
             let manager = self.inner.authorization_manager.clone();
             let guard = manager.lock().await;
-            guard.refresh_token().await.with_context(|| {
-                format!(
-                    "failed to refresh OAuth tokens for server {}",
-                    self.inner.server_name
-                )
-            })?;
+            guard.refresh_token().await
+        };
+        match refreshed {
+            Ok(response) => info!(
+                server = %self.inner.server_name,
+                pid = std::process::id(),
+                used = %used,
+                next = %refresh_token_fingerprint(&response),
+                "OAuth refresh succeeded"
+            ),
+            Err(error) => {
+                warn!(
+                    server = %self.inner.server_name,
+                    pid = std::process::id(),
+                    used = %used,
+                    "OAuth refresh failed: {error}"
+                );
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to refresh OAuth tokens for server {}",
+                        self.inner.server_name
+                    )
+                });
+            }
         }
 
         self.persist_if_needed().await
@@ -687,8 +725,14 @@ impl OAuthPersistor {
                     .as_secs(),
             ),
         );
-        let store = InMemoryCredentialStore::new();
+        let store = WriteThroughCredentialStore::new(
+            &self.inner.server_name,
+            &self.inner.url,
+            self.inner.store_mode,
+            self.inner.keyring_backend_kind,
+        );
         store
+            .memory
             .save(credentials)
             .await
             .context("failed to stage refreshed OAuth tokens")?;
@@ -700,6 +744,140 @@ impl OAuthPersistor {
         *last_credentials = Some(stored);
         Ok(true)
     }
+}
+
+/// Short, non-reversible label for a refresh token, so logs can show which token was used.
+fn refresh_token_fingerprint(response: &OAuthTokenResponse) -> String {
+    response
+        .refresh_token()
+        .map(|token| {
+            let digest = Sha256::digest(token.secret().as_bytes());
+            digest
+                .iter()
+                .take(4)
+                .map(|byte| format!("{byte:02x}"))
+                .collect()
+        })
+        .unwrap_or_else(|| "none".to_string())
+}
+
+/// rmcp's transport refreshes an expired token by itself (outside `refresh_if_needed`) and only
+/// keeps the result in its credential store. Servers that rotate refresh tokens revoke the grant
+/// when the old one is presented again, so a refresh that is lost before the next request
+/// persists it (quit, sleep, a dropped connection) forces a new sign-in. This store writes every
+/// token rmcp saves straight to the persistent store.
+#[derive(Clone)]
+pub(crate) struct WriteThroughCredentialStore {
+    memory: InMemoryCredentialStore,
+    server_name: String,
+    url: String,
+    store_mode: OAuthCredentialsStoreMode,
+    keyring_backend_kind: AuthKeyringBackendKind,
+}
+
+impl WriteThroughCredentialStore {
+    pub(crate) fn new(
+        server_name: &str,
+        url: &str,
+        store_mode: OAuthCredentialsStoreMode,
+        keyring_backend_kind: AuthKeyringBackendKind,
+    ) -> Self {
+        Self {
+            memory: InMemoryCredentialStore::new(),
+            server_name: server_name.to_string(),
+            url: url.to_string(),
+            store_mode,
+            keyring_backend_kind,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl CredentialStore for WriteThroughCredentialStore {
+    async fn load(&self) -> std::result::Result<Option<StoredCredentials>, AuthError> {
+        self.memory.load().await
+    }
+
+    async fn save(&self, credentials: StoredCredentials) -> std::result::Result<(), AuthError> {
+        let tokens = credentials
+            .token_response
+            .clone()
+            .map(|token_response| StoredOAuthTokens {
+                server_name: self.server_name.clone(),
+                url: self.url.clone(),
+                client_id: credentials.client_id.clone(),
+                expires_at: compute_expires_at_millis(&token_response),
+                token_response: WrappedOAuthTokenResponse(token_response),
+            });
+        self.memory.save(credentials).await?;
+        let Some(tokens) = tokens else {
+            return Ok(());
+        };
+        let next = refresh_token_fingerprint(&tokens.token_response.0);
+        let server_name = self.server_name.clone();
+        let (store_mode, keyring_backend_kind) = (self.store_mode, self.keyring_backend_kind);
+        let saved = tokio::task::spawn_blocking(move || {
+            save_oauth_tokens(&server_name, &tokens, store_mode, keyring_backend_kind)
+        })
+        .await;
+        match saved {
+            Ok(Ok(())) => info!(
+                server = %self.server_name,
+                pid = std::process::id(),
+                next = %next,
+                "OAuth tokens saved as soon as they were received"
+            ),
+            Ok(Err(error)) => warn!(
+                server = %self.server_name,
+                "failed to save received OAuth tokens: {error}"
+            ),
+            Err(error) => warn!(
+                server = %self.server_name,
+                "OAuth token save task failed: {error}"
+            ),
+        }
+        Ok(())
+    }
+
+    async fn clear(&self) -> std::result::Result<(), AuthError> {
+        self.memory.clear().await
+    }
+}
+
+/// Moves a connection's current tokens into a [`WriteThroughCredentialStore`].
+pub(crate) async fn install_write_through_store(
+    authorization_manager: &Arc<Mutex<AuthorizationManager>>,
+    server_name: &str,
+    url: &str,
+    store_mode: OAuthCredentialsStoreMode,
+    keyring_backend_kind: AuthKeyringBackendKind,
+) -> Result<()> {
+    let mut guard = authorization_manager.lock().await;
+    let (client_id, token_response) = guard.get_credentials().await?;
+    let store =
+        WriteThroughCredentialStore::new(server_name, url, store_mode, keyring_backend_kind);
+    if let Some(token_response) = token_response {
+        let granted_scopes = token_response
+            .scopes()
+            .map(|scopes| scopes.iter().map(|scope| scope.to_string()).collect())
+            .unwrap_or_default();
+        let received_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        store
+            .memory
+            .save(StoredCredentials::new(
+                client_id,
+                Some(token_response),
+                granted_scopes,
+                Some(received_at),
+            ))
+            .await
+            .context("failed to stage OAuth tokens")?;
+    }
+    guard.set_credential_store(store);
+    Ok(())
 }
 
 const FALLBACK_FILENAME: &str = ".credentials.json";
@@ -965,6 +1143,45 @@ mod tests {
     use std::sync::Arc;
 
     use super::test_support::TempCodexHome;
+
+    #[tokio::test]
+    async fn write_through_store_saves_received_tokens_to_disk_at_once() -> Result<()> {
+        use rmcp::transport::auth::CredentialStore as _;
+        let _env = TempCodexHome::new();
+        let tokens = sample_tokens();
+        let store = super::WriteThroughCredentialStore::new(
+            &tokens.server_name,
+            &tokens.url,
+            OAuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::Direct,
+        );
+        store
+            .save(rmcp::transport::auth::StoredCredentials::new(
+                tokens.client_id.clone(),
+                Some(tokens.token_response.0.clone()),
+                Vec::new(),
+                Some(0),
+            ))
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+
+        let loaded = super::load_oauth_tokens(
+            &tokens.server_name,
+            &tokens.url,
+            OAuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::Direct,
+        )?
+        .expect("tokens should be on disk without a separate persist");
+        let refresh = |stored: &StoredOAuthTokens| {
+            stored
+                .token_response
+                .0
+                .refresh_token()
+                .map(|token| token.secret().clone())
+        };
+        assert_eq!(refresh(&loaded), refresh(&tokens));
+        Ok(())
+    }
 
     #[test]
     fn load_oauth_tokens_reads_from_keyring_when_available() -> Result<()> {

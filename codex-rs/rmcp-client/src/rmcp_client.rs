@@ -1192,6 +1192,14 @@ async fn create_oauth_transport_and_runtime(
         manager,
     );
     let auth_manager = auth_client.auth_manager.clone();
+    crate::oauth::install_write_through_store(
+        &auth_manager,
+        server_name,
+        url,
+        credentials_store,
+        keyring_backend_kind,
+    )
+    .await?;
 
     let transport = StreamableHttpClientTransport::with_client(
         auth_client,
