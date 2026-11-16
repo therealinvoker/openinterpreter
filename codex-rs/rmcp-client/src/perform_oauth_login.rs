@@ -257,6 +257,38 @@ pub async fn perform_oauth_login_return_url_with_http_client(
     Ok(OauthLoginHandle::new(authorization_url, completion))
 }
 
+/// The page the browser lands on after the provider redirects back, styled like Bolt.
+fn callback_page(title: &str, detail: &str, status: u16) -> Response<std::io::Cursor<Vec<u8>>> {
+    let escape = |text: &str| {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    let mark = if status == 200 {
+        r#"<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>"#
+    } else {
+        r#"<circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/>"#
+    };
+    let html = format!(
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} · Bolt</title><style>
+:root{{color-scheme:light dark;--bg:#fafafa;--fg:#171717;--muted:#737373;--line:#e5e5e5;--card:#fff}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#0f0f0f;--fg:#ededed;--muted:#a3a3a3;--line:#262626;--card:#171717}}}}
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif}}
+main{{width:min(360px,calc(100vw - 32px));padding:32px 28px;border:1px solid var(--line);border-radius:14px;background:var(--card);text-align:center}}
+svg{{width:32px;height:32px;margin-bottom:14px;color:var(--muted)}}h1{{margin:0 0 6px;font-size:17px;font-weight:500}}p{{margin:0;color:var(--muted)}}
+</style></head><body><main><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{mark}</svg><h1>{title}</h1><p>{detail}</p></main></body></html>"#,
+        title = escape(title),
+        detail = escape(detail),
+    );
+    let content_type =
+        tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+            .expect("static header is valid");
+    Response::from_string(html)
+        .with_header(content_type)
+        .with_status_code(status)
+}
+
 fn spawn_callback_server(
     server: Arc<Server>,
     tx: oneshot::Sender<CallbackResult>,
@@ -267,8 +299,10 @@ fn spawn_callback_server(
             let path = request.url().to_string();
             match parse_oauth_callback(&path, &expected_callback_path) {
                 CallbackOutcome::Success(OauthCallbackResult { code, state, iss }) => {
-                    let response = Response::from_string(
-                        "Authentication complete. You may close this window.",
+                    let response = callback_page(
+                        "You're connected",
+                        "You can close this tab and go back to Bolt.",
+                        200,
                     );
                     if let Err(err) = request.respond(response) {
                         eprintln!("Failed to respond to OAuth callback: {err}");
@@ -283,7 +317,11 @@ fn spawn_callback_server(
                     break;
                 }
                 CallbackOutcome::Error(error) => {
-                    let response = Response::from_string(error.to_string()).with_status_code(400);
+                    let response = callback_page(
+                        "Sign-in didn't finish",
+                        &format!("{error}. Go back to Bolt and try connecting again."),
+                        400,
+                    );
                     if let Err(err) = request.respond(response) {
                         eprintln!("Failed to respond to OAuth callback: {err}");
                     }
@@ -293,8 +331,11 @@ fn spawn_callback_server(
                     break;
                 }
                 CallbackOutcome::Invalid => {
-                    let response =
-                        Response::from_string("Invalid OAuth callback").with_status_code(400);
+                    let response = callback_page(
+                        "Sign-in didn't finish",
+                        "This sign-in link isn't valid. Go back to Bolt and try connecting again.",
+                        400,
+                    );
                     if let Err(err) = request.respond(response) {
                         eprintln!("Failed to respond to OAuth callback: {err}");
                     }
