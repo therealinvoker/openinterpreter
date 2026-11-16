@@ -265,6 +265,8 @@ fn callback_page(title: &str, detail: &str, status: u16) -> Response<std::io::Cu
             .replace('>', "&gt;")
             .replace('"', "&quot;")
     };
+    // The app passes its own link scheme (bolt:// in release, bolt-dev:// in development).
+    let open_url = std::env::var("BOLT_APP_URL").unwrap_or_else(|_| "bolt://".to_string());
     let mark = if status == 200 {
         r#"<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>"#
     } else {
@@ -276,10 +278,12 @@ fn callback_page(title: &str, detail: &str, status: u16) -> Response<std::io::Cu
 @media (prefers-color-scheme:dark){{:root{{--bg:#0f0f0f;--fg:#ededed;--muted:#a3a3a3;--line:#262626;--card:#171717}}}}
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif}}
 main{{width:min(360px,calc(100vw - 32px));padding:32px 28px;border:1px solid var(--line);border-radius:14px;background:var(--card);text-align:center}}
+a.open{{display:inline-block;margin-top:20px;padding:8px 16px;border-radius:8px;background:var(--fg);color:var(--bg);font-weight:500;text-decoration:none}}a.open:hover{{opacity:.85}}
 svg{{width:32px;height:32px;margin-bottom:14px;color:var(--muted)}}h1{{margin:0 0 6px;font-size:17px;font-weight:500}}p{{margin:0;color:var(--muted)}}
-</style></head><body><main><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{mark}</svg><h1>{title}</h1><p>{detail}</p></main></body></html>"#,
+</style></head><body><main><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{mark}</svg><h1>{title}</h1><p>{detail}</p><a class="open" href="{open_url}">Open Bolt</a></main></body></html>"#,
         title = escape(title),
         detail = escape(detail),
+        open_url = escape(&open_url),
     );
     let content_type =
         tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
