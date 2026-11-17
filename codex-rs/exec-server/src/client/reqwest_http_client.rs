@@ -34,6 +34,13 @@ use crate::rpc::RpcNotificationSender;
 use crate::rpc::internal_error;
 use crate::rpc::invalid_params;
 
+/// Without a connect timeout a TCP handshake whose SYN is dropped hangs until
+/// the caller's own deadline (a 6s MCP startup, or an hour-long tool call).
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// A failed connect never reached the server, so resending is safe for any
+/// method. Delays before each retry.
+const CONNECT_RETRY_DELAYS_MS: [u64; 2] = [100, 400];
+
 /// `HttpClient` implementation that performs the actual HTTP request with
 /// `reqwest`.
 #[derive(Clone, Default)]
@@ -57,11 +64,10 @@ impl ReqwestHttpClient {
         timeout_ms: Option<u64>,
         redirect_policy: HttpRedirectPolicy,
     ) -> Result<reqwest::Client, ExecServerError> {
+        let builder = reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT);
         let builder = match timeout_ms {
-            None => reqwest::Client::builder(),
-            Some(timeout_ms) => {
-                reqwest::Client::builder().timeout(Duration::from_millis(timeout_ms))
-            }
+            None => builder,
+            Some(timeout_ms) => builder.timeout(Duration::from_millis(timeout_ms)),
         };
         let builder = match redirect_policy {
             HttpRedirectPolicy::Follow => builder,
@@ -164,15 +170,28 @@ impl ReqwestHttpRequestRunner {
             request = request.body(body.into_inner());
         }
 
-        let response = match request.send().instrument(request_span.clone()).await {
-            Ok(response) => response,
-            Err(error) => {
-                request_span.record("error.type", "request");
-                let error_message = error.to_string();
-                log_send_error(&method, error);
-                return Err(internal_error(format!(
-                    "http/request failed: {error_message}"
-                )));
+        let mut connect_retries = CONNECT_RETRY_DELAYS_MS.iter();
+        let response = loop {
+            let retry_request = request.try_clone();
+            match request.send().instrument(request_span.clone()).await {
+                Ok(response) => break response,
+                Err(error) => {
+                    if error.is_connect()
+                        && let Some(next_request) = retry_request
+                        && let Some(delay_ms) = connect_retries.next()
+                    {
+                        log_send_error(&method, error);
+                        tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
+                        request = next_request;
+                        continue;
+                    }
+                    request_span.record("error.type", "request");
+                    let error_message = error.to_string();
+                    log_send_error(&method, error);
+                    return Err(internal_error(format!(
+                        "http/request failed: {error_message}"
+                    )));
+                }
             }
         };
         let status = response.status().as_u16();
