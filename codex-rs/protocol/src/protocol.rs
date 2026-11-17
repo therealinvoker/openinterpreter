@@ -189,13 +189,64 @@ pub struct W3cTraceContext {
 }
 
 /// Config payload for refreshing MCP servers.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct McpServerRefreshConfig {
     /// Complete runtime server map after source and thread-scoped resolution.
     pub mcp_servers: Value,
     /// OAuth credential store mode to use with this server snapshot.
     pub mcp_oauth_credentials_store_mode: Value,
     pub auth_keyring_backend_kind: Value,
+}
+
+/// Every submission is logged at debug level and the log is persisted and
+/// attached to feedback, so server headers and env values must not appear.
+impl fmt::Debug for McpServerRefreshConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("McpServerRefreshConfig")
+            .field("mcp_servers", &redact_mcp_server_secrets(&self.mcp_servers))
+            .field(
+                "mcp_oauth_credentials_store_mode",
+                &self.mcp_oauth_credentials_store_mode,
+            )
+            .field("auth_keyring_backend_kind", &self.auth_keyring_backend_kind)
+            .finish()
+    }
+}
+
+const REDACTED: &str = "<redacted>";
+
+fn redact_mcp_server_secrets(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, value)| {
+                    let redacted = match (key.as_str(), value) {
+                        ("http_headers" | "env", Value::Object(entries)) => Value::Object(
+                            entries
+                                .keys()
+                                .map(|name| (name.clone(), Value::String(REDACTED.to_string())))
+                                .collect(),
+                        ),
+                        (key, Value::String(_)) if is_secret_key(key) => {
+                            Value::String(REDACTED.to_string())
+                        }
+                        _ => redact_mcp_server_secrets(value),
+                    };
+                    (key.clone(), redacted)
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(redact_mcp_server_secrets).collect()),
+        other => other.clone(),
+    }
+}
+
+fn is_secret_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    !key.ends_with("env_var")
+        && ["token", "secret", "password", "authorization", "api_key"]
+            .iter()
+            .any(|needle| key.contains(needle))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -4399,6 +4450,37 @@ mod tests {
     use serde_json::json;
     use std::path::PathBuf;
     use tempfile::NamedTempFile;
+
+    #[test]
+    fn mcp_server_refresh_config_debug_redacts_credentials() {
+        let config = McpServerRefreshConfig {
+            mcp_servers: json!({
+                "kubera": {
+                    "url": "https://api.kubera.com/api/v2/mcp",
+                    "http_headers": { "Authorization": "Basic c2VjcmV0" },
+                    "env": { "API_KEY": "sk-live" },
+                    "bearer_token_env_var": "BOLT_MCP_KUBERA_TOKEN",
+                    "oauth": { "client_secret": "shh" },
+                },
+            }),
+            mcp_oauth_credentials_store_mode: json!("file"),
+            auth_keyring_backend_kind: json!("default"),
+        };
+
+        let logged = format!("{config:?}");
+
+        for secret in ["c2VjcmV0", "sk-live", "shh"] {
+            assert!(!logged.contains(secret), "{secret} leaked: {logged}");
+        }
+        for kept in [
+            "Authorization",
+            "API_KEY",
+            "BOLT_MCP_KUBERA_TOKEN",
+            "api.kubera.com",
+        ] {
+            assert!(logged.contains(kept), "{kept} missing: {logged}");
+        }
+    }
     use tempfile::TempDir;
 
     #[test]

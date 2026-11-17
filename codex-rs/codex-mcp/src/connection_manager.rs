@@ -874,6 +874,22 @@ impl McpConnectionManager {
         server_infos
     }
 
+    /// Startup errors of servers that finished starting and failed, by server name.
+    pub(crate) async fn startup_failures(&self) -> Vec<(String, String)> {
+        let mut failures = Vec::new();
+        for (server_name, client) in &self.clients {
+            if !client.startup_complete.load(Ordering::Acquire) {
+                continue;
+            }
+            if let Err(error) = client.client().await
+                && !matches!(error, StartupOutcomeError::Cancelled)
+            {
+                failures.push((server_name.clone(), error.to_string()));
+            }
+        }
+        failures
+    }
+
     fn with_server_metadata(&self, mut tool: ToolInfo) -> ToolInfo {
         let Some(metadata) = self.server_metadata.get(&tool.server_name) else {
             tool.supports_parallel_tool_calls = false;

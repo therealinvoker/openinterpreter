@@ -432,6 +432,16 @@ pub async fn collect_mcp_server_status_snapshot_with_detail(
     )
     .await;
 
+    // Startup events go to a dropped channel here, so without this a server
+    // that failed to start is listed with no tools and no trace of why.
+    for (server_name, error) in mcp_connection_manager.startup_failures().await {
+        tracing::warn!(
+            server_name = %server_name,
+            error = %strip_url_queries(&error),
+            "MCP server failed to start while listing server status"
+        );
+    }
+
     cancel_token.cancel();
 
     snapshot
@@ -654,6 +664,33 @@ fn convert_mcp_resource_templates(
             (name, templates)
         })
         .collect::<HashMap<_, _>>()
+}
+
+/// Query strings can carry API keys; drop them from URLs inside an error message.
+fn strip_url_queries(message: &str) -> String {
+    let mut out = String::with_capacity(message.len());
+    let mut in_query = false;
+    let mut chars = message.char_indices();
+    while let Some((index, ch)) = chars.next() {
+        if in_query {
+            if ch.is_whitespace() || matches!(ch, ')' | '"' | '\'' | '>') {
+                in_query = false;
+                out.push(ch);
+            }
+            continue;
+        }
+        if ch == '?'
+            && message[..index]
+                .rsplit(char::is_whitespace)
+                .next()
+                .is_some_and(|word| word.contains("://"))
+        {
+            in_query = true;
+            continue;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 async fn collect_mcp_server_status_snapshot_from_manager(

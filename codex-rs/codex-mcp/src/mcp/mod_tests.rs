@@ -17,6 +17,20 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+#[test]
+fn strip_url_queries_drops_query_strings_only() {
+    assert_eq!(
+        strip_url_queries(
+            "http/request failed: error sending request for url (https://mcp.example.com/mcp?api_key=sk-live&x=1): timed out"
+        ),
+        "http/request failed: error sending request for url (https://mcp.example.com/mcp): timed out"
+    );
+    assert_eq!(
+        strip_url_queries("timed out handshaking with MCP server after 6s? retry"),
+        "timed out handshaking with MCP server after 6s? retry"
+    );
+}
+
 fn test_mcp_config(codex_home: PathBuf) -> McpConfig {
     McpConfig {
         chatgpt_base_url: "https://chatgpt.com".to_string(),
