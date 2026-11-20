@@ -272,6 +272,25 @@ fn callback_page(title: &str, detail: &str, status: u16) -> Response<std::io::Cu
     } else {
         r#"<circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/>"#
     };
+    // On success, hand the browser back to the app once the page has painted (a
+    // custom-scheme link followed mid-load leaves Chrome on a blank tab). Only
+    // ever once per page: a restored, reloaded or revisited tab must not pull
+    // the app forward again, so each page carries an id recorded before leaving.
+    let reopen = if status == 200 && open_url.chars().all(|c| c.is_ascii_alphanumeric() || "+-.:/".contains(c)) {
+        let page_id = format!(
+            "{}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_nanos())
+                .unwrap_or_default(),
+            std::process::id()
+        );
+        format!(
+            "<script>(function(){{var key=\"bolt-reopened-{page_id}\";var nav=performance.getEntriesByType&&performance.getEntriesByType(\"navigation\")[0];if(nav&&nav.type!==\"navigate\")return;try{{if(localStorage.getItem(key))return;localStorage.setItem(key,\"1\");}}catch(e){{return;}}requestAnimationFrame(function(){{requestAnimationFrame(function(){{window.location.href=\"{open_url}\";}});}});}})();</script>"
+        )
+    } else {
+        String::new()
+    };
     let html = format!(
         r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} · Bolt</title><style>
 :root{{color-scheme:light dark;--bg:#fafafa;--fg:#171717;--muted:#737373;--line:#e5e5e5;--card:#fff}}
@@ -280,10 +299,11 @@ fn callback_page(title: &str, detail: &str, status: u16) -> Response<std::io::Cu
 main{{width:min(360px,calc(100vw - 32px));padding:32px 28px;border:1px solid var(--line);border-radius:14px;background:var(--card);text-align:center}}
 a.open{{display:inline-block;margin-top:20px;padding:8px 16px;border-radius:8px;background:var(--fg);color:var(--bg);font-weight:500;text-decoration:none}}a.open:hover{{opacity:.85}}
 svg{{width:32px;height:32px;margin-bottom:14px;color:var(--muted)}}h1{{margin:0 0 6px;font-size:17px;font-weight:500}}p{{margin:0;color:var(--muted)}}
-</style></head><body><main><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{mark}</svg><h1>{title}</h1><p>{detail}</p><a class="open" href="{open_url}">Open Bolt</a></main></body></html>"#,
+</style></head><body><main><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{mark}</svg><h1>{title}</h1><p>{detail}</p><a class="open" href="{open_url}">Open Bolt</a></main>{reopen}</body></html>"#,
         title = escape(title),
         detail = escape(detail),
         open_url = escape(&open_url),
+        reopen = reopen,
     );
     let content_type =
         tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
